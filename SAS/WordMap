@@ -1,0 +1,65 @@
+/* Step 1: Import the games data */
+proc import datafile="steam_data/games.csv"
+    out=df_games
+    dbms=csv
+    replace;
+    getnames=yes;
+    delimiter=',';
+run;
+
+/* Step 2: Extract the game titles and drop missing values */
+data titles;
+    set df_games;
+    if name ne '' then output;
+run;
+
+/* Step 3: Clean and combine titles */
+data clean_text;
+    set titles;
+    length text $10000;
+    text = lowcase(name); /* Convert to lowercase */
+    text = prxchange('s/[^a-z\s]/ /', -1, text); /* Remove non-alphabetical characters */
+    text = prxchange('s/\s+/ /', -1, text); /* Remove extra spaces */
+    text = strip(text); /* Remove leading/trailing spaces */
+run;
+
+/* Step 4: Combine all cleaned titles into one text block */
+proc sql noprint;
+    select text into :combined_text separated by ' '
+    from clean_text;
+quit;
+
+/* Step 5: Remove stopwords (commonly used words like "the", "and", etc.) */
+%let stopwords = the and for with of in to on a an at as by from;
+
+/* Remove stopwords from the combined text */
+data final_text;
+    length cleaned_text $10000;
+    retain stopwords "&stopwords";
+    set clean_text;
+    cleaned_text = text;
+    array stopword_array[20] $8 _temporary_ ('the', 'and', 'for', 'with', 'of', 'in', 'to', 'on', 'a', 'an', 'at', 'as', 'by', 'from');
+    do i = 1 to 14;
+        cleaned_text = prxchange(cats('s/\b', stopword_array[i], '\b/ /'), -1, cleaned_text);
+    end;
+run;
+
+/* Step 6: Export the cleaned text data for external word cloud generation */
+proc export data=final_text
+    outfile="steam_data/cleaned_text.txt"
+    dbms=tab
+    replace;
+run;
+
+/* Step 7: Display a simple word cloud using SAS Visual Analytics (external tool) */
+/* To generate a word cloud, use SAS Visual Analytics for word cloud visualization */
+
+/* For SAS users who do not have access to Visual Analytics, consider using the below SAS script
+   to count word occurrences for later visualization or exporting. */
+
+/* Step 8: Count word occurrences for word cloud creation */
+proc freq data=final_text noprint;
+    tables cleaned_text / out=word_count (drop=percent);
+run;
+
+/* Step 9: Visualize the word cloud (in Visual Analytics or external tool) */

@@ -1,0 +1,98 @@
+/* Step 1: Import the genres and tags CSV files */
+proc import datafile="steam_data/genres.csv"
+    out=df_genres
+    dbms=csv
+    replace;
+    getnames=yes;
+run;
+
+proc import datafile="steam_data/tags.csv"
+    out=df_tags
+    dbms=csv
+    replace;
+    getnames=yes;
+run;
+
+/* Step 2: Identify the top 5 most common genres */
+proc freq data=df_genres noprint;
+    tables genre / out=genre_counts (drop=percent);
+run;
+
+proc sort data=genre_counts;
+    by descending count;
+run;
+
+data top5_genres;
+    set genre_counts;
+    if _N_ <= 5;
+run;
+
+proc print data=top5_genres;
+    title "Top 5 Genres";
+run;
+
+/* Step 3: Identify the top 5 most common tags */
+proc freq data=df_tags noprint;
+    tables tag / out=tag_counts (drop=percent);
+run;
+
+proc sort data=tag_counts;
+    by descending count;
+run;
+
+data top5_tags;
+    set tag_counts;
+    if _N_ <= 5;
+run;
+
+proc print data=top5_tags;
+    title "Top 5 Tags";
+run;
+
+/* Step 4: Filter the DataFrames to include only top 5 genres and tags */
+proc sql;
+    create table df_genres_top as
+    select * from df_genres
+    where genre in (select genre from top5_genres);
+    
+    create table df_tags_top as
+    select * from df_tags
+    where tag in (select tag from top5_tags);
+quit;
+
+/* Step 5: Merge the filtered genres and tags tables */
+proc sql;
+    create table merged_df as
+    select a.*, b.tag
+    from df_genres_top as a
+    inner join df_tags_top as b
+    on a.app_id = b.app_id;
+quit;
+
+/* Step 6: Count occurrences of each (genre, tag) pair */
+proc freq data=merged_df noprint;
+    tables genre*tag / out=genre_tag_counts (drop=percent);
+run;
+
+/* Step 7: Create a pivot table */
+proc transpose data=genre_tag_counts out=pivot_table(drop=_NAME_);
+    by genre;
+    id tag;
+    var count;
+run;
+
+/* Step 8: Reorder the pivot table */
+proc sql;
+    create table ordered_pivot as
+    select * from pivot_table
+    where genre in (select genre from top5_genres)
+    order by genre;
+quit;
+
+/* Step 9: Plot a heatmap */
+proc sgplot data=ordered_pivot;
+    heatmapparm x=tag y=genre colorresponse=count / colormodel=(lightgreen lightblue);
+    xaxis label="Tag";
+    yaxis label="Genre";
+    title "Overlap Between Top 5 Genres and Top 5 Tags";
+run;

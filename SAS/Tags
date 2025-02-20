@@ -1,0 +1,79 @@
+/* Step 1: Import the games data */
+proc import datafile="steam_data/games.csv"
+    out=df_games
+    dbms=csv
+    replace;
+    getnames=yes;
+    delimiter=',';
+run;
+
+/* Step 2: Import the tags data */
+proc import datafile="steam_data/tags.csv"
+    out=df_tags
+    dbms=csv
+    replace;
+    getnames=yes;
+    delimiter=',';
+run;
+
+/* Step 3: Preprocess the games data */
+data df_games;
+    set df_games;
+    /* Convert release_date to SAS date and extract the year */
+    release_date_sas = input(release_date, yymmdd10.);
+    year = year(release_date_sas);
+    
+    /* Drop rows with missing year */
+    if year = . then delete;
+run;
+
+/* Step 4: Merge the games with the tags data */
+proc sql;
+    create table df_merged as
+    select a.app_id, a.year, b.tag
+    from df_games as a
+    inner join df_tags as b
+    on a.app_id = b.app_id;
+quit;
+
+/* Step 5: Determine the top 10 tags overall */
+proc freq data=df_merged noprint;
+    tables tag / out=overall_tag_counts (drop=percent);
+run;
+
+proc sort data=overall_tag_counts;
+    by descending count;
+run;
+
+data top10_tags;
+    set overall_tag_counts;
+    if _N_ <= 10;
+run;
+
+proc print data=top10_tags;
+    title "Top 10 Tags";
+run;
+
+/* Step 6: Aggregate yearly counts for top 10 tags */
+proc sql;
+    create table tag_year_counts as
+    select tag, year, count(distinct app_id) as count
+    from df_merged
+    where tag in (select tag from top10_tags)
+    group by tag, year;
+quit;
+
+/* Step 7: Pivot the data */
+proc transpose data=tag_year_counts out=pivot_data(drop=_NAME_);
+    by year;
+    id tag;
+    var count;
+run;
+
+/* Step 8: Plot the growth of top 10 tags over the years */
+proc sgplot data=pivot_data;
+    series x=year y=game tag / markers;
+    xaxis label="Year";
+    yaxis label="Number of Games Released";
+    title "Growth of Top 10 Tags Over the Years";
+run;
